@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
+use uuid7::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Message {
@@ -19,13 +20,15 @@ enum Body {
     },
     #[serde(rename = "init_ok")]
     InitOk { in_reply_to: u64 },
-    #[serde(rename = "echo")]
-    Echo { msg_id: u64, echo: String },
-    #[serde(rename = "echo_ok")]
-    EchoOk {
+    #[serde(rename = "generate")]
+    Generate {
+        msg_id: u64,
+    },
+    #[serde(rename = "generate_ok")]
+    GenerateOk {
         msg_id: u64,
         in_reply_to: u64,
-        echo: String,
+        id: Uuid,
     },
     #[serde(rename = "error")]
     Error {
@@ -60,14 +63,15 @@ fn main() {
                 writeln!(stdout, "{}", output_json).unwrap();
                 stdout.flush().unwrap();
             }
-            Body::Echo { msg_id, echo } => {
+            Body::Generate { msg_id, .. } => {
+                let uuid = uuid7::uuid7();
                 let output = Message {
                     src: node_id.clone(),
                     dest: input.src,
-                    body: Body::EchoOk {
+                    body: Body::GenerateOk {
                         msg_id,
                         in_reply_to: msg_id,
-                        echo,
+                        id: uuid,
                     },
                 };
                 let output_json = serde_json::to_string(&output).unwrap();
