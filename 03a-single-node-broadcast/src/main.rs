@@ -1,141 +1,100 @@
-use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead, Write};
-use std::collections::HashMap;
+mod connection;
+mod message;
+mod node;
+mod storage;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Message {
-    src: String,
-    dest: String,
-    body: Body,
-}
+use crate::connection::Connection;
+use crate::message::{Body, Message};
+use crate::node::Node;
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-enum Body {
-    Error {
-        in_reply_to: u64,
-        code: u64,
-        text: String,
-    },
-    Init {
-        msg_id: u64,
-        node_id: String,
-        node_ids: Vec<String>,
-    },
-    InitOk { in_reply_to: u64 },
-    Broadcast {
-        msg_id: u64,
-        message: u64,
-    },
-    BroadcastOk {
-        msg_id: u64,
-        in_reply_to: u64,
-    },
-    Read {
-        msg_id: u64,
-    },
-    ReadOk {
-        msg_id: u64,
-        in_reply_to: u64,
-        messages: Vec<u64>,
-    },
-    Topology {
-        msg_id: u64,
-        topology: Topology,
-    },
-    TopologyOk {
-        msg_id: u64,
-        in_reply_to: u64,
+fn main() {
+    let stdin = std::io::stdin();
+    let mut connection = Connection::new(stdin);
+
+    let mut node = init_node(&mut connection);
+
+    while let Some(message) = connection.read() {
+        handle_message(&mut node, &mut connection, message);
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Messages(Vec<u64>);
+fn init_node(connection: &mut Connection) -> Node {
+    let input = connection.read_one().expect("Didn't get input");
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Topology(HashMap<String, Vec<String>>);
+    let node;
+    match input.body {
+        Body::Init { msg_id, .. } => {
+            node = Node::init(input.clone());
 
-fn main() {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
-    let mut node_id = String::new();
+            let response = Message {
+                src: node.id.clone(),
+                dest: input.src,
+                body: Body::InitOk {
+                    in_reply_to: msg_id,
+                },
+            };
 
-    let mut messages = Messages(Vec::new());
-
-    for line in stdin.lock().lines() {
-        let input: Message = serde_json::from_str(&line.unwrap()).unwrap();
-        match input.body {
-            Body::Init {
-                msg_id,
-                node_id: id,
-                ..
-            } => {
-                node_id = id;
-                let output = Message {
-                    src: node_id.clone(),
-                    dest: input.src,
-                    body: Body::InitOk {
-                        in_reply_to: msg_id,
-                    },
-                };
-                let output_json = serde_json::to_string(&output).unwrap();
-                writeln!(stdout, "{}", output_json).unwrap();
-                stdout.flush().unwrap();
-            }
-            Body::Broadcast { msg_id, message } => {
-                messages.0.push(message);
-
-                let output = Message {
-                    src: node_id.clone(),
-                    dest: input.src,
-                    body: Body::BroadcastOk {
-                        msg_id,
-                        in_reply_to: msg_id,
-                    },
-                };
-                let output_json = serde_json::to_string(&output).unwrap();
-                writeln!(stdout, "{}", output_json).unwrap();
-                stdout.flush().unwrap();
-            }
-            Body::Read { msg_id } => {
-                let output = Message {
-                    src: node_id.clone(),
-                    dest: input.src,
-                    body: Body::ReadOk {
-                        msg_id,
-                        in_reply_to: msg_id,
-                        messages: messages.0.clone(),
-                    },
-                };
-                let output_json = serde_json::to_string(&output).unwrap();
-                writeln!(stdout, "{}", output_json).unwrap();
-                stdout.flush().unwrap();
-            }
-            Body::Topology { msg_id, .. } => {
-                let output = Message {
-                    src: node_id.clone(),
-                    dest: input.src,
-                    body: Body::TopologyOk {
-                        msg_id,
-                        in_reply_to: msg_id,
-                    },
-                };
-                let output_json = serde_json::to_string(&output).unwrap();
-                writeln!(stdout, "{}", output_json).unwrap();
-                stdout.flush().unwrap();
-            }
-            Body::Error {
-                in_reply_to,
-                code,
-                text,
-            } => {
-                eprintln!(
-                    "Error received (in_reply_to: {}, code: {}, text: {})",
-                    in_reply_to, code, text
-                );
-            }
-            _ => (),
+            connection.write(response);
         }
+        _ => panic!("Node is not initalized yet"),
+    }
+
+    node
+}
+
+fn handle_message(node: &mut Node, connection: &mut Connection, input: Message) {
+    match input.body {
+        Body::Broadcast { msg_id, message } => {
+            node.storage.add_message(message);
+
+            let response = Message {
+                src: node.id.clone(),
+                dest: input.src,
+                body: Body::BroadcastOk {
+                    msg_id,
+                    in_reply_to: msg_id,
+                },
+            };
+
+            connection.write(response);
+        }
+        Body::Read { msg_id } => {
+            let output = Message {
+                src: node.id.clone(),
+                dest: input.src,
+                body: Body::ReadOk {
+                    msg_id,
+                    in_reply_to: msg_id,
+                    messages: node.storage.get_messages(),
+                },
+            };
+
+            connection.write(output);
+        }
+        Body::Topology { msg_id, topology } => {
+            node.storage.init_topology(topology);
+
+            let output = Message {
+                src: node.id.clone(),
+                dest: input.src,
+                body: Body::TopologyOk {
+                    msg_id,
+                    in_reply_to: msg_id,
+                },
+            };
+
+            connection.write(output);
+        }
+        Body::Error {
+            in_reply_to,
+            code,
+            text,
+        } => {
+            eprintln!(
+                "Error received (in_reply_to: {}, code: {}, text: {})",
+                in_reply_to, code, text
+            );
+        }
+        _ => (),
     }
 }
