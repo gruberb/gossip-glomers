@@ -36,7 +36,7 @@ async fn main() {
         write_to_stdout(&mut writer_rx).await;
     });
 
-    tokio::spawn(async move {
+    let gossip = tokio::spawn(async move {
         loop {
             interval.tick().await;
             gossip_messages(n1.clone(), writer_tx2.clone()).await;
@@ -47,7 +47,7 @@ async fn main() {
         handle_messages(n2, &mut reader_rx, writer_tx1).await;
     });
 
-    let _ = tokio::try_join!(read, handle, write);
+    let _ = tokio::try_join!(read, handle, write, gossip);
 }
 
 async fn read_from_stdin(reader_tx: Sender<Message>) {
