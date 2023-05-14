@@ -49,6 +49,9 @@ pub enum Body {
         msg_id: u64,
         in_reply_to: u64,
     },
+    Gossip {
+        messages: Vec<u64>,
+    },
 }
 
 impl Message {

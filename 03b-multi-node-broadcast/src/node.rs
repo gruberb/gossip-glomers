@@ -11,18 +11,19 @@ pub(crate) struct Node {
 }
 
 impl Node {
-    pub(crate) fn init(message: Message) -> Node {
+    pub(crate) fn init(&mut self, message: Message) {
         match message.body {
             Body::Init {
                 node_id, node_ids, ..
             } => {
-                return Node {
-                    id: node_id,
-                    availble_nodes: node_ids,
-                    storage: Storage::new(),
-                }
+                self.id = node_id;
+                self.availble_nodes = node_ids;
             }
             _ => panic!("Invalid message type"),
         }
+    }
+
+    pub(crate) fn get_id(&self) -> String {
+        self.id.clone()
     }
 }
