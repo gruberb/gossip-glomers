@@ -1,8 +1,10 @@
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub(crate) struct Topology(pub(crate) HashMap<String, Vec<String>>);
+pub(crate) struct Neighbours(pub(crate) HashSet<String>);
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub(crate) struct Messages(pub(crate) HashSet<u64>);
@@ -12,7 +14,7 @@ pub(crate) struct Storage {
     pub(crate) messages: Messages,
     pub(crate) received_messages: HashMap<String, Messages>,
     pub(crate) sent_messages: HashMap<String, Messages>,
-    pub(crate) topology: Topology,
+    pub(crate) neighbours: Neighbours,
 }
 
 impl Storage {
@@ -74,11 +76,21 @@ impl Storage {
         }
     }
 
-    pub(crate) fn init_topology(&mut self, topology: HashMap<String, Vec<String>>) {
-        self.topology.0 = topology;
+    pub(crate) fn init_topology(&mut self, node_id: String, nodes: &Vec<String>) {
+        let i = nodes.iter().position(|x| *x == node_id).unwrap();
+
+        let left_neighbor = nodes[(i + nodes.len() - 1) % nodes.len()].clone();
+        let right_neighbor = nodes[(i + 1) % nodes.len()].clone();
+
+        let mut rng = thread_rng();
+        let selections: Vec<String> = nodes.choose_multiple(&mut rng, 2).cloned().collect();
+
+        self.neighbours.0.extend(selections);
+        self.neighbours.0.insert(left_neighbor);
+        self.neighbours.0.insert(right_neighbor);
     }
 
-    pub(crate) fn get_neighbours(&self, node_id: &str) -> Option<Vec<String>> {
-        self.topology.0.get(node_id).cloned()
+    pub(crate) fn get_neighbours(&self) -> HashSet<String> {
+        self.neighbours.0.clone()
     }
 }

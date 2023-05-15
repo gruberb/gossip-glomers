@@ -16,8 +16,8 @@ impl Node {
             Body::Init {
                 node_id, node_ids, ..
             } => {
-                self.id = node_id;
-                self.availble_nodes = node_ids;
+                self.id = node_id.clone();
+                self.availble_nodes = node_ids.clone();
             }
             _ => panic!("Invalid message type"),
         }

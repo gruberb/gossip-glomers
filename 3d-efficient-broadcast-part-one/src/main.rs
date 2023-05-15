@@ -12,8 +12,8 @@ use std::sync::{
     mpsc::{Receiver, Sender},
     Arc, Mutex,
 };
-use std::thread;
 use std::time::Duration;
+use std::{println, thread};
 
 fn main() {
     let (reader_tx, mut reader_rx) = mpsc::channel();
@@ -37,7 +37,7 @@ fn main() {
     });
 
     let gossip = thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(100));
         gossip_messages(n1.clone(), writer_tx2.clone());
     });
 
@@ -75,30 +75,40 @@ fn write_to_stdout(writer_rx: &mut Receiver<Message>) {
 
 fn gossip_messages(node: Arc<Mutex<Node>>, writer: Sender<Message>) {
     let node = node.lock().unwrap();
-    if let Some(neighbours) = node.storage.get_neighbours(&node.get_id()) {
-        for n in neighbours {
-            let messages = node.storage.get_messages_for_node(n.clone());
-            let message = Message {
-                src: node.id.clone(),
-                dest: n.clone(),
-                body: Body::Gossip {
-                    messages: messages.clone(),
-                },
-            };
+    for n in node.storage.get_neighbours() {
+        let messages = node.storage.get_messages_for_node(n.clone());
 
-            writer.send(message).unwrap();
+        if messages.len() == 0 {
+            continue;
         }
+
+        let message = Message {
+            src: node.id.clone(),
+            dest: n.clone(),
+            body: Body::Gossip {
+                messages: messages.clone(),
+            },
+        };
+
+        writer.send(message).unwrap();
     }
 }
 
 fn handle_messages(node: Arc<Mutex<Node>>, input: &mut Receiver<Message>, writer: Sender<Message>) {
     while let Ok(input) = input.recv() {
         match input.body {
-            Body::Init { msg_id, .. } => {
-                node.lock().unwrap().init(input.clone());
-                let id = node.lock().unwrap().get_id();
+            Body::Init {
+                msg_id,
+                ref node_id,
+                ref node_ids,
+                ..
+            } => {
+                let mut node = node.lock().unwrap();
+                node.init(input.clone());
+                node.storage.init_topology(node_id.clone(), &node_ids);
+
                 let response = Message {
-                    src: id,
+                    src: node_id.clone(),
                     dest: input.src,
                     body: Body::InitOk {
                         in_reply_to: msg_id,
@@ -161,9 +171,8 @@ fn handle_messages(node: Arc<Mutex<Node>>, input: &mut Receiver<Message>, writer
 
                 writer.send(response).unwrap();
             }
-            Body::Topology { msg_id, topology } => {
+            Body::Topology { msg_id, .. } => {
                 let id = node.lock().unwrap().get_id();
-                node.lock().unwrap().storage.init_topology(topology);
 
                 let response = Message {
                     src: id,
