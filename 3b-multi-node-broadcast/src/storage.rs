@@ -77,7 +77,7 @@ impl Storage {
         self.topology.0 = topology;
     }
 
-    pub(crate) fn get_neighbours(&self, node_id: &str) -> Vec<String> {
-        self.topology.0.get(node_id).unwrap().to_owned()
+    pub(crate) fn get_neighbours(&self, node_id: &str) -> Option<Vec<String>> {
+        self.topology.0.get(node_id).cloned()
     }
 }

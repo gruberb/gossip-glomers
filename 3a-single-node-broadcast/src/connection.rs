@@ -1,4 +1,5 @@
 use crate::message::Message;
+use log::info;
 use std::io::{BufRead, Write};
 
 #[derive(Debug)]
@@ -18,6 +19,7 @@ impl<'a> Connection<'a> {
     pub fn read_one(&mut self) -> Option<Message> {
         let mut buf = String::new();
         let _ = self.reader.read_line(&mut buf);
+        info!("read_from_stdin:: {buf:?}");
         return Some(Message::parse_message(buf));
     }
 
@@ -37,6 +39,7 @@ impl<'a> Connection<'a> {
     }
 
     pub fn write(&mut self, message: Message) {
+        info!("write to stdout: {message:?}");
         let message = Message::format_message(message);
         writeln!(self.writer, "{}", message).unwrap();
         self.writer.flush().unwrap();

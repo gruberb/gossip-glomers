@@ -8,6 +8,7 @@ use crate::message::{Body, Message};
 use crate::node::Node;
 
 fn main() {
+    log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
     let stdin = std::io::stdin();
     let mut connection = Connection::new(stdin);
 
