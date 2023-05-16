@@ -6,6 +6,8 @@ use crate::message::{Body, Message};
 use crate::node::Node;
 use crate::storage::Storage;
 
+use rand::prelude::*;
+use rand::rngs::StdRng;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +19,10 @@ use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
+
+const GOSSIP_DELAY: u64 = 150;
+const MIN_AMOUNT_NODES: usize = 4;
+const NETWORK_SIZE: usize = 25;
 
 #[tokio::main]
 async fn main() {
@@ -45,7 +51,7 @@ async fn main() {
 
     let gossip = tokio::spawn(async move {
         loop {
-            thread::sleep(Duration::from_millis(25));
+            thread::sleep(Duration::from_millis(GOSSIP_DELAY));
             gossip_messages(n1.clone(), s1.clone(), writer_tx2.clone()).await;
         }
     });
@@ -114,24 +120,50 @@ async fn write_to_stdout(writer_rx: &mut Receiver<Message>) {
 }
 
 async fn gossip_messages(node: Node, storage: Arc<Mutex<Storage>>, writer: Sender<Message>) {
-    for n in node.get_neighbours() {
-        let messages = storage.lock().await.get_messages_for_node(n.clone());
+    let mut rng = StdRng::from_entropy();
 
-        if messages.len() < 1 || storage.lock().await.get_retries(n.clone()) < 2 {
-            storage.lock().await.increase_or_insert(n);
-            continue;
-        }
+    let num_to_select = rng.gen_range(MIN_AMOUNT_NODES..=NETWORK_SIZE);
 
-        let message = Message {
-            src: node.id.clone(),
-            dest: n.clone(),
-            body: Body::Gossip {
-                messages: messages.clone(),
-            },
-        };
+    let selected_neighbours: Vec<String> = node
+        .get_network()
+        .choose_multiple(&mut rng, num_to_select)
+        .cloned()
+        .collect();
 
-        storage.lock().await.decrease_or_remove(n);
-        writer.send(message).await.unwrap();
+    let mut tasks = vec![];
+
+    for n in selected_neighbours {
+        let storage_clone = storage.clone();
+        let writer_clone = writer.clone();
+        let node_clone = node.clone();
+
+        let task = tokio::spawn(async move {
+            let messages = storage_clone
+                .lock()
+                .await
+                .get_new_messages_for_neighbour(n.clone());
+
+            if messages.is_empty() {
+                return;
+            }
+
+            let message = Message {
+                src: node_clone.id.clone(),
+                dest: n.clone(),
+                body: Body::Gossip {
+                    messages: messages.clone(),
+                },
+            };
+
+            writer_clone.send(message).await.unwrap();
+        });
+
+        tasks.push(task);
+    }
+
+    // Wait for all the gossip tasks to complete
+    for task in tasks {
+        task.await.unwrap();
     }
 }
 
@@ -145,7 +177,7 @@ async fn handle_messages(
         match input.body {
             Body::Broadcast { msg_id, message } => {
                 let id = node.id.clone();
-                storage.lock().await.add_message(message, id.clone());
+                storage.lock().await.add_message(message);
 
                 let response = Message {
                     src: id,
@@ -160,9 +192,10 @@ async fn handle_messages(
             }
             Body::Gossip { messages } => {
                 let id = node.id.clone();
-                for m in messages.iter() {
-                    storage.lock().await.add_message(*m, id.clone());
-                }
+                storage
+                    .lock()
+                    .await
+                    .add_messages(messages.clone(), input.src.clone());
 
                 let response = Message {
                     src: id,
@@ -176,7 +209,7 @@ async fn handle_messages(
                 storage
                     .lock()
                     .await
-                    .add_to_sent_messages(messages, node.id.clone());
+                    .add_to_sent_messages(messages, input.src);
             }
             Body::Read { msg_id } => {
                 let response = Message {

@@ -1,18 +1,15 @@
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use serde::{Deserialize, Serialize};
-
 use crate::message::{Body, Message};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub(crate) struct Neighbours(pub(crate) HashSet<String>);
+pub(crate) struct Network(pub(crate) HashSet<String>);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub(crate) struct Node {
     pub(crate) id: String,
     pub(crate) availble_nodes: Vec<String>,
-    pub(crate) neighbours: Neighbours,
+    pub(crate) network: Network,
 }
 
 impl Node {
@@ -24,24 +21,20 @@ impl Node {
                 return Node {
                     id: node_id.clone(),
                     availble_nodes: node_ids.clone(),
-                    neighbours: self.init_topology(node_ids),
+                    network: self.init_network(node_ids),
                 }
             }
             _ => panic!("Invalid message type"),
         }
     }
 
-    fn init_topology(&self, nodes: Vec<String>) -> Neighbours {
-        let mut neighbours = Neighbours::default();
-
-        let mut rng = thread_rng();
-        let selections: Vec<String> = nodes.choose_multiple(&mut rng, 9).cloned().collect();
-
-        neighbours.0.extend(selections);
+    fn init_network(&self, nodes: Vec<String>) -> Network {
+        let mut neighbours = Network::default();
+        neighbours.0.extend(nodes);
         neighbours
     }
 
-    pub(crate) fn get_neighbours(&self) -> HashSet<String> {
-        self.neighbours.0.clone()
+    pub(crate) fn get_network(&self) -> Vec<String> {
+        self.network.0.clone().into_iter().collect::<Vec<_>>()
     }
 }
