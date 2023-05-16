@@ -1,20 +1,15 @@
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub(crate) struct Neighbours(pub(crate) HashSet<String>);
-
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub(crate) struct Messages(pub(crate) HashSet<u64>);
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub(crate) struct Storage {
     pub(crate) messages: Messages,
     pub(crate) received_messages: HashMap<String, Messages>,
     pub(crate) sent_messages: HashMap<String, Messages>,
-    pub(crate) neighbours: Neighbours,
+    pub(crate) retry: HashMap<String, u8>,
 }
 
 impl Storage {
@@ -36,6 +31,30 @@ impl Storage {
 
     pub(crate) fn get_messages(&mut self) -> Vec<u64> {
         self.messages.0.clone().into_iter().collect()
+    }
+
+    pub(crate) fn get_retries(&self, node: String) -> u8 {
+        match self.retry.get(&node) {
+            Some(count) => *count,
+            None => 0,
+        }
+    }
+
+    pub(crate) fn increase_or_insert(&mut self, node: String) {
+        let count = self.retry.entry(node).or_insert(0);
+        *count += 1;
+    }
+
+    pub(crate) fn decrease_or_remove(&mut self, node: String) {
+        match self.retry.get_mut(&node) {
+            Some(count) => {
+                *count -= 1;
+                if *count == 0 {
+                    self.retry.remove(&node);
+                }
+            }
+            None => (),
+        }
     }
 
     pub(crate) fn get_messages_for_node(&self, node: String) -> Vec<u64> {
@@ -74,23 +93,5 @@ impl Storage {
             self.sent_messages
                 .insert(node, Messages(messages.iter().cloned().collect()));
         }
-    }
-
-    pub(crate) fn init_topology(&mut self, node_id: String, nodes: &Vec<String>) {
-        let i = nodes.iter().position(|x| *x == node_id).unwrap();
-
-        let left_neighbor = nodes[(i + nodes.len() - 1) % nodes.len()].clone();
-        let right_neighbor = nodes[(i + 1) % nodes.len()].clone();
-
-        let mut rng = thread_rng();
-        let selections: Vec<String> = nodes.choose_multiple(&mut rng, 2).cloned().collect();
-
-        self.neighbours.0.extend(selections);
-        self.neighbours.0.insert(left_neighbor);
-        self.neighbours.0.insert(right_neighbor);
-    }
-
-    pub(crate) fn get_neighbours(&self) -> HashSet<String> {
-        self.neighbours.0.clone()
     }
 }
