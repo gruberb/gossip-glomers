@@ -33,10 +33,9 @@ async fn main() {
     let writer_tx1: Sender<Message> = writer_tx.clone();
     let writer_tx2: Sender<Message> = writer_tx.clone();
 
-    let node = Node::default();
     let store = Arc::new(Mutex::new(Storage::default()));
 
-    let node = init_node(node).await;
+    let node = Node::bootstrap().await;
 
     let n1 = node.clone();
     let s1 = store.clone();
@@ -61,39 +60,6 @@ async fn main() {
     });
 
     let _ = tokio::try_join!(read, handle, write, gossip);
-}
-
-async fn init_node(node: Node) -> Node {
-    let stdin = tokio::io::stdin();
-    let mut stdout = std::io::stdout();
-
-    let mut reader = BufReader::new(stdin);
-    let mut buf = String::new();
-
-    reader.read_line(&mut buf).await.unwrap();
-    let message = Message::parse_message(buf.clone());
-    let node = node.init(message.clone());
-
-    match message.body {
-        Body::Init {
-            msg_id, node_id, ..
-        } => {
-            let response = Message {
-                src: node_id,
-                dest: message.src.clone(),
-                body: Body::InitOk {
-                    in_reply_to: msg_id,
-                },
-            };
-
-            let message = Message::format_message(response);
-            writeln!(stdout, "{}", message).unwrap();
-            stdout.flush().unwrap();
-        }
-        _ => (),
-    }
-
-    node
 }
 
 async fn read_from_stdin(reader_tx: Sender<Message>) {
